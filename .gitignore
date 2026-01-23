@@ -138,11 +138,21 @@ celerybeat.pid
 .env
 .envrc
 .venv
+pyenv.cfg
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local venv checked into this repo path by accident: qc_mcp/
+# Keep the actual source/docs, ignore the virtualenv internals.
+/qc_mcp/bin/
+/qc_mcp/include/
+/qc_mcp/lib/
+/qc_mcp/lib64/
+/qc_mcp/pyvenv.cfg
+/qc_mcp/__pycache__/
 
 # Spyder project settings
 .spyderproject
