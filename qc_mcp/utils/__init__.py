@@ -5,7 +5,7 @@ from .parsing import (
     extract_python_code,
     extract_compile_errors,
     #prepare_code_for_json,
-    truncate_text,
+    #truncate_text,
 )
 from .prompts import (
     build_code_prompt,
@@ -22,7 +22,7 @@ __all__ = [
     "extract_python_code",
     "extract_compile_errors",
     #"prepare_code_for_json",
-    "truncate_text",
+    #"truncate_text",
     # Prompts
     "build_code_prompt",
     "build_compile_retry_prompt",
