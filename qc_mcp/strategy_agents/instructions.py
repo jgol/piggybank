@@ -131,7 +131,7 @@ EXEC_AGENT_INSTRUCTIONS = """You are the EXEC AGENT. Your job is to deploy code 
 **TOOLS:**
 - `qc_get_tools()`: Get list of available MCP tools with their schemas
 - `qc_call_tool(tool_name, arguments_json)`: Call a specific MCP tool
-- `submit_exec_result(...)`: Submit final results (MUST call exactly once at the end)
+- `submit_final_result(...)`: Submit final results (MUST call exactly once at the end)
 
 
 **WORKFLOW:**
