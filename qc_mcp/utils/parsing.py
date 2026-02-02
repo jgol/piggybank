@@ -118,18 +118,18 @@ def extract_compile_errors(raw_response: str) -> list[str]:
 #     return escaped[1:-1]  # Remove surrounding quotes
 
 
-def truncate_text(text: str, limit: int = 20000) -> str:
-    """
-    Truncate text to a character limit, keeping beginning and end.
+# def truncate_text(text: str, limit: int = 20000) -> str:
+#     """
+#     Truncate text to a character limit, keeping beginning and end.
     
-    Args:
-        text: Text to truncate
-        limit: Maximum character count
+#     Args:
+#         text: Text to truncate
+#         limit: Maximum character count
         
-    Returns:
-        Truncated text with middle ellipsis if needed
-    """
-    if len(text) <= limit:
-        return text
-    half = limit // 2
-    return f"{text[:half]}\n...[truncated]...\n{text[-half:]}"
+#     Returns:
+#         Truncated text with middle ellipsis if needed
+#     """
+#     if len(text) <= limit:
+#         return text
+#     half = limit // 2
+#     return f"{text[:half]}\n...[truncated]...\n{text[-half:]}"
