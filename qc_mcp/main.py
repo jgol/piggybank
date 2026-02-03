@@ -128,7 +128,7 @@ class ExecResult:
 
 
 # =============================================================================
-# Agent Tools Factory
+# Agent Tools Setup
 # =============================================================================
 
 def build_tool_bank(mcp: QCMCPConnection) -> list[str]:
@@ -221,11 +221,11 @@ def make_agent_tools(mcp: QCMCPConnection, tools: list[str], result_holder: Exec
 
 
 # =============================================================================
-# Agent Runner Utility
+# Agent Runner
 # =============================================================================
 
-async def run_with_timeout(agent: Agent, input_text: str, max_turns: int, timeout: int = AGENT_TIMEOUT):
-    """Run agent with timeout protection."""
+async def run_agent(agent: Agent, input_text: str, max_turns: int, timeout: int = AGENT_TIMEOUT):
+    #Run agent with a set timeout
     try:
         return await asyncio.wait_for(
             Runner.run(agent, input=input_text, max_turns=max_turns),
@@ -240,7 +240,7 @@ async def run_with_timeout(agent: Agent, input_text: str, max_turns: int, timeou
 # =============================================================================
 
 async def main():
-    """Main pipeline: Spec → Code → Exec with revision loop."""
+    # Main pipeline: Spec → Code → Exec with revision loop
     
     # Configuration
     task = os.getenv("STRATEGY_TASK", DEFAULT_TASK)
@@ -285,19 +285,19 @@ async def main():
         )
 
         # =====================================================================
-        # PHASE 1: SPECIFICATION
+        # PHASE 1: SPEC WRITING
         # =====================================================================
         print(f"\n{'='*80}\nPHASE 1: SPECIFICATION\n{'='*80}")
         
         try:
-            spec_result = await run_with_timeout(spec_agent, task, max_turns=20)
+            spec_result = await run_agent(spec_agent, task, max_turns=20)
             spec_text = spec_result.final_output
         except Exception as e:
             print(f"✗ Spec Agent failed: {e}")
             return None
         
         print(f"✓ Specification generated ({len(spec_text)} chars)")
-        print(f"\n{spec_text[:2000]}{'...' if len(spec_text) > 2000 else ''}\n")
+        print(f"\n{spec_text}\n")
 
         # =====================================================================
         # PHASE 2: CODE GENERATION
@@ -307,7 +307,7 @@ async def main():
         code_prompt = build_code_prompt(spec_text)
         
         try:
-            code_result = await run_with_timeout(code_agent, code_prompt, max_turns=20)
+            code_result = await run_agent(code_agent, code_prompt, max_turns=20)
         except Exception as e:
             print(f"✗ Code Agent failed: {e}")
             return None
@@ -318,6 +318,7 @@ async def main():
             return None
         
         print(f"✓ Code generated ({len(current_code)} chars)")
+        print(f"GENERATED CODE: \n{current_code}")
 
         # =====================================================================
         # PHASE 3: EXECUTION & REVISION
@@ -339,11 +340,11 @@ async def main():
                 project_name, 
                 DEFAULT_MAIN_FILE, 
                 current_code,
-                project_id=project_id  # Add this
+                project_id=project_id 
             )
             
             try:
-                await run_with_timeout(exec_agent, exec_input, max_turns=MAX_AGENT_TURNS)
+                await run_agent(exec_agent, exec_input, max_turns=MAX_AGENT_TURNS)
             except Exception as e:
                 print(f"✗ Exec Agent error: {e}")
                 continue
@@ -392,7 +393,7 @@ async def main():
                 retry_prompt = build_compile_retry_prompt(current_code, errors)
                 
                 try:
-                    retry_result = await run_with_timeout(code_agent, retry_prompt, max_turns=15)
+                    retry_result = await run_agent(code_agent, retry_prompt, max_turns=15)
                     new_code = extract_python_code(retry_result.final_output)
                     
                     if new_code and new_code != current_code:
@@ -412,7 +413,7 @@ async def main():
                 revision_prompt = build_zero_trades_prompt(current_code, exec_result.to_dict())
                 
                 try:
-                    revision_result = await run_with_timeout(code_agent, revision_prompt, max_turns=20)
+                    revision_result = await run_agent(code_agent, revision_prompt, max_turns=20)
                     new_code = extract_python_code(revision_result.final_output)
                     
                     if new_code and new_code != current_code:
