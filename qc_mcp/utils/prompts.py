@@ -36,18 +36,15 @@ def build_compile_retry_prompt(code: str, errors: list[str]) -> str:
 
     Return the complete fixed code in a single ```python``` block. Do not explain the changes."""
 
-# When there are no trades...
 def build_zero_trades_prompt(code: str, backtest_info: dict | None = None) -> str:
-    
     info_text = json.dumps(backtest_info, indent=2) if backtest_info else "No additional info"
     
-    return f"""The code compiles and backtests successfully, but generated 0 trades.
+    return f"""The code compiles but generated 0 trades.
 
-    **Possible Causes:**
-    1. Entry conditions too restrictive (time window, VIX filter, delta targets)
-    2. Option chain filtering too narrow (no contracts match criteria)
-    3. Scheduled function not triggering properly
-    4. Logic errors preventing order execution
+    **Most Likely Causes:**
+    1. Greeks are None - code returns early without fallback
+    2. No contracts match criteria - filters too restrictive
+    3. Chain empty in scheduled function - not using cached contracts
 
     **Backtest Info:**
     {info_text}
@@ -57,17 +54,32 @@ def build_zero_trades_prompt(code: str, backtest_info: dict | None = None) -> st
     {code}
     ```
 
-    **Instructions:**
-    1. Add debug logging to trace execution:
-    - Log when scheduled functions are called
-    - Log available contract count after filtering
-    - Log why entry conditions might fail
-    2. Consider relaxing filters:
-    - Widen strike range in SetFilter (e.g., -50 to +50)
-    - Relax delta tolerance or premium minimums
-    - Extend time windows
-    3. Verify option chain access is correct
-    4. Ensure orders use correct symbols (contract.Symbol, not strings)
+    **Required Fixes:**
+
+    1. Add strike-based fallback when Greeks unavailable:
+    ```python
+    # Instead of only this:
+    if not contracts_with_greeks:
+        return
+
+    # Add fallback:
+    if not contracts_with_greeks:
+        self.Debug(f"{{self.Time}}: No Greeks, using strike-based selection")
+        underlying = self.Securities[self.spx.Symbol].Price
+        # Select ~5% OTM by strike distance
+        otm_puts = [c for c in puts if c.Strike < underlying * 0.95]
+        otm_calls = [c for c in calls if c.Strike > underlying * 1.05]
+    ```
+
+    2. Add debug logging at every decision point:
+    ```python
+    self.Debug(f"{{self.Time}}: {{len(contracts)}} contracts, {{len(puts)}} puts, {{len(calls)}} calls")
+    self.Debug(f"{{self.Time}}: {{len(with_greeks)}} have Greeks")
+    ```
+
+    3. Verify using cached contracts (not CurrentSlice) in TryEntry
+
+    4. Ensure orders use contract.Symbol (not strings)
 
     Return the complete revised code in a single ```python``` block."""
 

@@ -177,16 +177,47 @@ def make_agent_tools(mcp: QCMCPConnection, tools: list[str], result_holder: Exec
                 "tool": tool_name,
                 "error": f"Invalid arguments_json: {e}"
             })
-        
+            
         try:
             raw = await mcp.call_tool(tool_name, arguments)
-            try:
-                data = json.loads(raw) if raw else None
-            except json.JSONDecodeError:
-                data = None
-            return json.dumps({"ok": True, "tool": tool_name, "raw": raw, "data": data})
+            data = json.loads(raw) if raw else {}
+            
+            # Auto-poll for backtest creation
+            if tool_name == "create_backtest":
+                print(f"create_backtest response: {data}")
+                backtest_id = data.get("backtestId") or data.get("backtest", {}).get("backtestId")
+                project_id = arguments.get("projectId")
+                
+                print(f"backtest_id: {backtest_id}")
+                print(f"project_id: {project_id}")
+                
+                if not backtest_id:
+                    print("No backtest_id found, returning early")
+                    return json.dumps({"ok": False, "tool": tool_name, "error": "No backtestId", "data": data})
+                
+                print("Starting poll loop...")
+                
+                for i in range(30):
+                    await asyncio.sleep(10)
+                    print(f"Poll {i}...")
+                    poll_result = await mcp.call_tool("read_backtest", {
+                        "projectId": project_id,
+                        "backtestId": backtest_id
+                    })
+                    poll_data = json.loads(poll_result) if poll_result else {}
+                    status = poll_data.get("status", "")
+                    print(f"Poll {i} status: {status}")
+                    
+                    if "Completed" in status or "Error" in status:
+                        return json.dumps({"ok": True, "tool": tool_name, "data": poll_data})
+                
+                return json.dumps({"ok": False, "tool": tool_name, "error": "Backtest timeout"})
+            
+            return json.dumps({"ok": True, "tool": tool_name, "data": data})
         except Exception as e:
+            print(f"Exception in qc_call_tool: {e}")
             return json.dumps({"ok": False, "tool": tool_name, "error": str(e)})
+
 
     @function_tool
     async def submit_exec_result(
