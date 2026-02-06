@@ -19,6 +19,8 @@ Environment Variables:
 import asyncio
 import json
 import os
+import ast
+import re
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
@@ -150,7 +152,67 @@ def tool_cards(mcp: QCMCPConnection, valid_tools: list[str]) -> list[dict]:
 
 def make_agent_tools(mcp: QCMCPConnection, tools: list[str], result_holder: ExecResult):
     # Create agent tools with shared result holder.
+    def _safe_parse(raw_text: str) -> dict:
+        if not raw_text:
+            return {}
+        try:
+            parsed = json.loads(raw_text)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            pass
+        try:
+            parsed = ast.literal_eval(raw_text)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
     
+    def _extract_backtest_id(data: dict) -> str | None:
+        # Support multiple possible response shapes
+        return (
+            data.get("backtestId")
+            or data.get("id")
+            or data.get("backtest", {}).get("backtestId")
+            or data.get("result", {}).get("backtestId")
+        )
+
+    def _extract_backtest_id_from_raw(raw_text: str) -> str | None:
+        if not raw_text:
+            return None
+        match = re.search(r"backtestId['\"]?\s*[:=]\s*['\"]([a-fA-F0-9]+)['\"]", raw_text)
+        return match.group(1) if match else None
+
+    def _extract_backtest_status(data: dict) -> str | None:
+        # Support multiple possible response shapes
+        return (
+            data.get("status")
+            or data.get("state")
+            or data.get("backtest", {}).get("status")
+            or data.get("backtest", {}).get("state")
+            or data.get("result", {}).get("status")
+        )
+
+    def _looks_like_backtest_complete(data: dict) -> bool:
+        # Heuristic: completed responses often include results/statistics/alpha/charts/etc.
+        if not isinstance(data, dict) or not data:
+            return False
+
+        if data.get("completed") is True or data.get("finished") is True:
+            return True
+
+        for key in ("statistics", "totalTrades", "orders", "alpha", "charts", "result", "results"):
+            if key in data and data[key]:
+                return True
+
+        bt = data.get("backtest")
+        if isinstance(bt, dict):
+            if bt.get("completed") is True or bt.get("finished") is True:
+                return True
+            for key in ("statistics", "totalTrades", "orders", "alpha", "charts", "result", "results"):
+                if key in bt and bt[key]:
+                    return True
+
+        return False
+                
     @function_tool
     async def qc_get_tools() -> str:
         # ist available QuantConnect MCP tools and their JSON input schemas.
@@ -180,35 +242,67 @@ def make_agent_tools(mcp: QCMCPConnection, tools: list[str], result_holder: Exec
             
         try:
             raw = await mcp.call_tool(tool_name, arguments)
-            data = json.loads(raw) if raw else {}
+            data = _safe_parse(raw)
             
             # Auto-poll for backtest creation
             if tool_name == "create_backtest":
                 print(f"create_backtest response: {data}")
-                backtest_id = data.get("backtestId") or data.get("backtest", {}).get("backtestId")
-                project_id = arguments.get("projectId")
+                if not data:
+                    print(f"create_backtest raw: {raw}")
+
+                backtest_id = _extract_backtest_id(data) or _extract_backtest_id_from_raw(raw)
+                project_id = arguments.get("projectId") or arguments.get("model", {}).get("projectId")
                 
                 print(f"backtest_id: {backtest_id}")
                 print(f"project_id: {project_id}")
                 
                 if not backtest_id:
                     print("No backtest_id found, returning early")
-                    return json.dumps({"ok": False, "tool": tool_name, "error": "No backtestId", "data": data})
+                    return json.dumps({"ok": False, "tool": tool_name, "error": "No backtestId", "data": data, "raw": raw})
+
+                if not project_id:
+                    print("No project_id found for backtest polling")
+                    return json.dumps({"ok": False, "tool": tool_name, "error": "No projectId", "data": data})
                 
                 print("Starting poll loop...")
                 
-                for i in range(30):
+                for i in range(60):
                     await asyncio.sleep(10)
                     print(f"Poll {i}...")
                     poll_result = await mcp.call_tool("read_backtest", {
-                        "projectId": project_id,
-                        "backtestId": backtest_id
+                        "model": {
+                            "projectId": project_id,
+                            "backtestId": backtest_id
+                        }
                     })
-                    poll_data = json.loads(poll_result) if poll_result else {}
-                    status = poll_data.get("status", "")
+                    if isinstance(poll_result, str) and poll_result.startswith("Error executing tool read_backtest"):
+                        print(f"Poll {i} error: {poll_result}")
+                        return json.dumps({"ok": False, "tool": tool_name, "error": poll_result})
+                    poll_data = _safe_parse(poll_result)
+
+                    status = _extract_backtest_status(poll_data) or ""
+                    status_lower = status.lower()
                     print(f"Poll {i} status: {status}")
-                    
-                    if "Completed" in status or "Error" in status:
+
+                    if isinstance(poll_data, dict) and poll_data.get("error"):
+                        return json.dumps({"ok": False, "tool": tool_name, "error": poll_data.get("error"), "data": poll_data})
+
+                    if not status:
+                        try:
+                            preview = poll_result[:500] if poll_result else ""
+                        except Exception:
+                            preview = ""
+                        print(f"Poll {i} raw preview: {preview}")
+                        if isinstance(poll_data, dict) and poll_data:
+                            print(f"Poll {i} keys: {list(poll_data.keys())}")
+
+                    if any(k in status_lower for k in ("complete", "completed", "finished", "success")):
+                        return json.dumps({"ok": True, "tool": tool_name, "data": poll_data})
+                    if any(k in status_lower for k in ("error", "failed", "cancel")):
+                        return json.dumps({"ok": False, "tool": tool_name, "error": status, "data": poll_data})
+
+                    # Some MCP responses omit status but include results; treat as completed.
+                    if _looks_like_backtest_complete(poll_data):
                         return json.dumps({"ok": True, "tool": tool_name, "data": poll_data})
                 
                 return json.dumps({"ok": False, "tool": tool_name, "error": "Backtest timeout"})
@@ -217,7 +311,6 @@ def make_agent_tools(mcp: QCMCPConnection, tools: list[str], result_holder: Exec
         except Exception as e:
             print(f"Exception in qc_call_tool: {e}")
             return json.dumps({"ok": False, "tool": tool_name, "error": str(e)})
-
 
     @function_tool
     async def submit_exec_result(
@@ -247,7 +340,7 @@ def make_agent_tools(mcp: QCMCPConnection, tools: list[str], result_holder: Exec
             "status": "Result recorded",
             "summary": result_holder.to_dict()
         })
-
+    
     return [qc_get_tools, qc_call_tool, submit_exec_result]
 
 

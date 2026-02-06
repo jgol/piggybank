@@ -240,22 +240,25 @@ EXEC_AGENT_INSTRUCTIONS = """You are the EXEC AGENT. Deploy code to QuantConnect
 
 2. Create/verify project:
    - If project_id provided, use it directly
-   - Otherwise create: `qc_call_tool("create_project", '{"projectName": "NAME", "language": "Py"}')`
+   - Otherwise create: `qc_call_tool("create_project", '{"model": {"projectName": "NAME", "language": "Py"}}')`
    - Save projectId for subsequent calls
 
 3. Upload code:
-   `qc_call_tool("update_file_contents", '{"projectId": ID, "fileName": "main.py", "content": "CODE"}')`
+   `qc_call_tool("update_file_contents", '{"model": {"projectId": ID, "fileName": "main.py", "content": "CODE"}}')`
    - Escape quotes and newlines in code
 
 4. Compile:
-   `qc_call_tool("create_compile", '{"projectId": ID}')`
+   `qc_call_tool("create_compile", '{"model": {"projectId": ID}}')`
    - Poll with `read_compile` until state is BuildSuccess or BuildError
+   - Example: `qc_call_tool("read_compile", '{"model": {"projectId": ID, "compileId": "CID"}}')`
    - If BuildError, extract errors, submit result, and STOP
 
 5. Backtest:
-   `qc_call_tool("create_backtest", '{"projectId": ID, "compileId": "CID", "backtestName": "Test"}')`
-   - This returns when backtest completes (no manual polling needed)
-   - Extract trade count from response
+   `qc_call_tool("create_backtest", '{"model": {"projectId": ID, "compileId": "CID", "backtestName": "Test"}}')`
+   - This returns quickly with a backtestId; you MUST poll `read_backtest`
+   - Poll `read_backtest` until status/state indicates completion or error
+   - Example: `qc_call_tool("read_backtest", '{"model": {"projectId": ID, "backtestId": "BID"}}')`
+   - Extract trade count from the completed backtest response
 
 6. Submit final results:
    Call `submit_exec_result()` with all collected data
