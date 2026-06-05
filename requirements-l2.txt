@@ -1,0 +1,19 @@
+# L2 (STVGP) dependency pins — reproducibility governance for H2 experiments.
+#
+# These are EXACT pins, not upper/lower bounds. Switching pymoo minor versions
+# can change NSGA-III niching behaviour (see Model QA review of Commit 5
+# 34861be): pymoo 0.6.x uses the Deb & Jain 2014 canonical `niching`
+# function, but the exact implementation of HyperplaneNormalization fallback
+# paths on degenerate populations has changed between 0.5.x and 0.6.x.
+#
+# When bumping any of these, expect to re-run H2 baselines and re-record
+# effect-size priors. The pre-registration (Commit 7) references these pins.
+#
+# Last reviewed: Commit 5 (34861be) — pymoo 0.6.1.6 baseline.
+
+pymoo==0.6.1.6
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.13.1
+pyarrow>=14.0.0        # Parquet I/O; minor-version tolerance acceptable
+pytest>=7.0            # Test runner; version-lenient
